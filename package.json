@@ -1,0 +1,51 @@
+{
+  "name": "realtime-communication-boilerplate",
+  "version": "1.0.0",
+  "description": "A complete realtime communication system with Express/Socket.IO server, Next.js admin dashboard, and Vite client - perfect for learning and production use",
+  "license": "MIT",
+  "keywords": [
+    "realtime",
+    "socket.io",
+    "websockets",
+    "chat",
+    "nextjs",
+    "vite",
+    "express",
+    "boilerplate",
+    "tutorial"
+  ],
+  "author": "Larry Kingstone <hello@larrykingstone.com> (https://larrykingstone.com)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/digitalterrene/realtime-comm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/digitalterrene/realtime-comm/issues"
+  },
+  "homepage": "https://github.com/digitalterrene/realtime-comm#readme",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "private": false,
+  "scripts": {
+    "start-server": "node server.js",
+    "dev-server": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "files": [
+    "server.js",
+    "client/",
+    "admin/",
+    "LICENSE",
+    "README.md"
+  ]
+}
