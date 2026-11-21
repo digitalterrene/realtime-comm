@@ -1,810 +1,188 @@
-# Realtime Communication System Documentation
+# Realtime Communication System
 
-## Overview
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-4.7.x-010101?style=flat-square&logo=socket.io&logoColor=white)](https://socket.io/)
+[![Express](https://img.shields.io/badge/Express-4.18.x-000000?style=flat-square&logo=express&logoColor=white)](https://expressjs.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
+[![Commits: Conventional](https://img.shields.io/badge/Commits-Conventional-orange?style=flat-square)](https://www.conventionalcommits.org/)
 
-This documentation describes a realtime communication system with three main components:
-
-1. **Express/Socket.IO server** - Handles realtime messaging and user management
-2. **Next.js Admin Dashboard** - Allows admins to monitor and communicate with users
-3. **Vite Client Application** - User-facing chat interface
-
-The system enables:
-
-- User-to-admin messaging
-- Admin-to-user private messaging
-- Admin broadcast messages
-- Real-time user connection tracking
-
-## Architecture Diagram
-
-```
-[Vite Client] ←→ [Express Server] ←→ [Next.js Admin]
-      ↑                     ↑
-(User Messages)    (Admin Broadcasts/Private Messages)
-```
-
-## 1. Express Server Implementation
-
-### Server Setup
-
-```javascript
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:8080", "http://localhost:3000"],
-    methods: ["GET", "POST"],
-  },
-});
-
-// Data structures for tracking connections
-const users = new Map(); // socket.id -> { userId, role }
-const adminSockets = new Set();
-```
-
-### Key Features
-
-#### Connection Management
-
-```javascript
-io.on("connection", (socket) => {
-  console.log("A user connected: ", socket.id);
-
-  // Authentication handler
-  socket.on("authenticate", ({ userId, role }) => {
-    users.set(socket.id, { userId, role });
-
-    if (role === "admin") {
-      adminSockets.add(socket.id);
-      console.log(`Admin connected: ${userId}`);
-    } else {
-      console.log(`User connected: ${userId}`);
-      // Notify all admins about new user
-      adminSockets.forEach((adminId) => {
-        io.to(adminId).emit("user-connected", userId);
-      });
-    }
-  });
-});
-```
-
-#### Message Handling
-
-```javascript
-// Public messages (user to admin)
-socket.on("sendMessage", (message) => {
-  const userData = users.get(socket.id);
-  if (!userData) return;
-
-  if (userData.role === "user") {
-    // Forward user messages to all admins
-    adminSockets.forEach((adminId) => {
-      io.to(adminId).emit("receiveMessage", {
-        ...message,
-        from: userData.userId,
-        private: false,
-      });
-    });
-  } else {
-    // Admin broadcasting to all
-    io.emit("receiveMessage", {
-      ...message,
-      from: "admin",
-      private: false,
-    });
-  }
-});
-
-// Private messages (admin to specific user)
-socket.on("sendPrivateMessage", ({ targetUserId, text }) => {
-  const senderData = users.get(socket.id);
-  if (!senderData || senderData.role !== "admin") return;
-
-  // Find the target user's socket
-  for (const [socketId, userData] of users) {
-    if (userData.userId === targetUserId) {
-      io.to(socketId).emit("receiveMessage", {
-        userId: "admin",
-        text,
-        private: true,
-      });
-      break;
-    }
-  }
-});
-```
-
-#### Disconnection Handling
-
-```javascript
-socket.on("disconnect", () => {
-  const userData = users.get(socket.id);
-  if (userData) {
-    if (userData.role === "admin") {
-      adminSockets.delete(socket.id);
-    }
-    users.delete(socket.id);
-    console.log(`User disconnected: ${userData.userId}`);
-  }
-});
-```
-
-## 2. Next.js Admin Dashboard
-
-### Key Components
-
-#### Socket Connection Setup
-
-```javascript
-const socket = io("http://localhost:4000");
-
-useEffect(() => {
-  // Authenticate as admin
-  socket.emit("authenticate", {
-    userId: "admin-1",
-    role: "admin",
-  });
-
-  // Message listener
-  socket.on("receiveMessage", (message) => {
-    setMessages((prev) => [...prev, message]);
-  });
-
-  // User connection listener
-  socket.on("user-connected", (userId) => {
-    setUsers((prev) => [...prev, userId]);
-  });
-
-  return () => {
-    socket.off("receiveMessage");
-    socket.off("user-connected");
-  };
-}, []);
-```
-
-#### Message Sending Logic
-
-```javascript
-const sendMessage = () => {
-  if (input.trim()) {
-    if (selectedUser === "all") {
-      // Broadcast to all
-      socket.emit("sendMessage", {
-        text: input,
-      });
-    } else {
-      // Private message to specific user
-      socket.emit("sendPrivateMessage", {
-        targetUserId: selectedUser,
-        text: input,
-      });
-    }
-    setInput("");
-  }
-};
-```
-
-#### UI Components
-
-- User selection dropdown
-- Message display area
-- Input field with send button
-
-## 3. Vite Client Application
-
-### Key Features
-
-#### Authentication and Setup
-
-```javascript
-const { user } = useUser();
-
-useEffect(() => {
-  if (!user?.id) return;
-
-  // Authenticate as user
-  socket.emit("authenticate", {
-    userId: user.id,
-    role: "user",
-  });
-
-  // Message listener
-  socket.on("receiveMessage", (message) => {
-    setMessages((prev) => [...prev, message]);
-  });
-
-  return () => {
-    socket.off("receiveMessage");
-  };
-}, [user?.id]);
-```
-
-#### Message Sending
-
-```javascript
-const sendMessage = () => {
-  if (input.trim()) {
-    socket.emit("sendMessage", {
-      text: input,
-      userId: user.id, // Critical fix: Include userId with messages
-    });
-    setInput("");
-  }
-};
-```
-
-## Useage Examples (Full Examples)
-
-Here's the complete code for all three components of your realtime communication system:
+A lightweight, role-aware realtime communication boilerplate built with **Express** and **Socket.IO**, paired with drop-in React reference components for a **Next.js Admin Dashboard** and a **Vite User Client**. Designed for customer support chat, admin broadcasts, targeted private messaging, and real-time online presence tracking.
 
 ---
 
-### 1. `server.js` (Express/Socket.IO Server)
+## ⚡ Quick Start
 
-```javascript
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
+Boot the local realtime server in 3 commands:
 
-const app = express();
-app.use(
-  cors({
-    origin: ["http://localhost:8080", "http://localhost:3000"],
-  })
-);
+```bash
+# 1. Clone the repository
+git clone https://github.com/digitalterrene/realtime-comm.git
+cd realtime-comm
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:8080", "http://localhost:3000"],
-    methods: ["GET", "POST"],
-  },
-});
+# 2. Install dependencies
+npm install
 
-// Store connected users
-const users = new Map(); // socket.id -> { userId, role }
-const adminSockets = new Set();
+# 3. Start the server (with hot reload via nodemon)
+npm run dev-server
+```
 
-// Middleware to validate user connections
-io.use((socket, next) => {
-  const { userId, role } = socket.handshake.auth;
-  if (userId && (role === "admin" || role === "user")) {
-    return next();
-  }
-  return next(new Error("Authentication error"));
-});
+Verify the server is healthy:
 
-io.on("connection", (socket) => {
-  console.log("New connection:", socket.id);
-  const { userId, role } = socket.handshake.auth;
+```bash
+curl http://localhost:4000/health
+# {"status":"healthy","users":0,"admins":0}
+```
 
-  // Store user information
-  users.set(socket.id, { userId, role });
+Default local endpoints:
+- **Socket.IO & HTTP Server**: `http://localhost:4000`
+- **Health Check Endpoint**: `http://localhost:4000/health`
+- **Allowed Admin Origin (Next.js)**: `http://localhost:3000`
+- **Allowed Client Origin (Vite)**: `http://localhost:8080`
 
-  if (role === "admin") {
-    adminSockets.add(socket.id);
-    console.log(`Admin connected: ${userId}`);
-    // Send list of connected users to admin
-    const userList = Array.from(users.values())
-      .filter((user) => user.role === "user")
-      .map((user) => user.userId);
-    socket.emit("user-list", userList);
-  } else {
-    console.log(`User connected: ${userId}`);
-    // Notify all admins about new user
-    adminSockets.forEach((adminId) => {
-      io.to(adminId).emit("user-connected", userId);
-    });
-  }
+---
 
-  // Handle public messages
-  socket.on("send-message", (message) => {
-    const userData = users.get(socket.id);
-    if (!userData) return;
+## 🏗️ System Architecture
 
-    const messageData = {
-      text: message.text,
-      userId: userData.userId,
-      timestamp: new Date().toISOString(),
-      private: false,
-    };
+```mermaid
+flowchart LR
+    subgraph Clients["Browser Clients"]
+        VC["Vite User Client\n(localhost:8080)\nrole: user"]
+        NA["Next.js Admin Dashboard\n(localhost:3000)\nrole: admin"]
+    end
 
-    if (userData.role === "user") {
-      // Forward user messages to all admins
-      adminSockets.forEach((adminId) => {
-        io.to(adminId).emit("receive-message", messageData);
-      });
-    } else {
-      // Admin broadcasting to all users
-      io.emit("receive-message", {
-        ...messageData,
-        from: "admin",
-      });
-    }
-  });
+    subgraph Server["Realtime Server (localhost:4000)"]
+        HTTP["Express HTTP Server\nGET /health"]
+        MW["Socket.IO Auth Middleware\nio.use()"]
+        HUB["Event Router\nsend-message / send-private-message"]
+        MEM[("In-Memory Registry\nusers Map + adminSockets Set")]
+    end
 
-  // Handle private messages
-  socket.on("send-private-message", ({ targetUserId, text }) => {
-    const senderData = users.get(socket.id);
-    if (!senderData || senderData.role !== "admin") return;
+    VC <-->|"WebSocket / Polling\nhandshake.auth"| MW
+    NA <-->|"WebSocket / Polling\nhandshake.auth"| MW
+    MW --> HUB
+    HUB <--> MEM
+    HTTP -.->|"Reads counts"| MEM
+```
 
-    const messageData = {
-      text,
-      userId: "admin",
-      targetUserId,
-      timestamp: new Date().toISOString(),
-      private: true,
-    };
+### Key Capabilities
+- **Handshake Authentication**: Validates `userId` and `role` (`admin` | `user`) in `io.use()` before upgrading the socket connection.
+- **User-to-Admin Messaging**: End-user messages (`send-message`) are routed exclusively to all connected admin sockets.
+- **Admin Broadcasts**: Admin `send-message` events broadcast to every connected client (`io.emit`).
+- **Admin-to-User Private Messaging**: Admin `send-private-message` events route directly to a target user socket and echo back to the sender admin.
+- **Live Presence Tracking**: Admins receive the full `user-list` upon connecting, plus incremental `user-connected` and `user-disconnected` notifications.
+- **Health Monitoring**: `GET /health` exposes live socket and admin counts for load balancers and smoke tests.
 
-    // Find the target user's socket
-    for (const [socketId, userData] of users) {
-      if (userData.userId === targetUserId && userData.role === "user") {
-        io.to(socketId).emit("receive-message", messageData);
-        // Also send to admin for their records
-        socket.emit("receive-message", messageData);
-        break;
-      }
-    }
-  });
+---
 
-  // Handle disconnections
-  socket.on("disconnect", () => {
-    const userData = users.get(socket.id);
-    if (userData) {
-      if (userData.role === "admin") {
-        adminSockets.delete(socket.id);
-      } else {
-        // Notify admins about user disconnection
-        adminSockets.forEach((adminId) => {
-          io.to(adminId).emit("user-disconnected", userData.userId);
-        });
-      }
-      users.delete(socket.id);
-      console.log(`User disconnected: ${userData.userId}`);
-    }
-  });
-});
+## 📚 Documentation Architecture
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "healthy",
-    users: users.size,
-    admins: adminSockets.size,
-  });
-});
+This repository follows the **4-Tier Senior Documentation Architecture**:
 
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+| Tier | Document | Purpose |
+|---|---|---|
+| **Tier 1: Governance** | [CONTRIBUTING.md](./CONTRIBUTING.md) | Branching, Conventional Commits, PR lifecycle, local checks |
+| **Tier 1: Governance** | [SECURITY.md](./SECURITY.md) | Vulnerability reporting, SLAs, production security notice |
+| **Tier 1: Governance** | [Git Engineering Standards](./docs/git-standards.md) | Non-negotiable git hygiene and Chain-of-Thought commit rules |
+| **Tier 2: Architecture** | [System Design & Topology](./docs/architecture/system-design.md) | Sequence diagrams, state machines, Socket.IO event contract, HTTP API |
+| **Tier 2: Architecture** | [Data Model & State Schemas](./docs/architecture/data-model.md) | In-memory registries, message payload schemas, complexity, DB migration ERD |
+| **Tier 2: Architecture** | [Security & RBAC Matrix](./docs/architecture/security-and-rbac.md) | Auth flow, RBAC permission matrix, CORS, threat model & hardening checklist |
+| **Tier 3: Decisions** | [Architecture Decision Records](./docs/adr/README.md) | Immutable log of architectural trade-offs (`ADR-001` through `ADR-003`) |
+| **Tier 4: Operations** | [Deployment Verification Runbook](./docs/runbooks/deployment-verification.md) | Post-deploy smoke tests, health/CORS/Socket.IO checks, rollback criteria |
+| **Tier 4: Operations** | [Incident Response Runbook](./docs/runbooks/incident-response.md) | Triage flowchart, common failure modes, diagnostics, recovery steps |
+
+---
+
+## 📁 Workspace Structure
+
+```text
+realtime-comm/
+├── server.js                              # Express HTTP + Socket.IO server entry point
+├── admin/
+│   └── index.js                           # Next.js AdminChatBox reference component
+├── client/
+│   └── index.js                           # Vite UserChatBox reference component
+├── docs/
+│   ├── git-standards.md                   # Git hygiene & Conventional Commits rules
+│   ├── architecture/                      # Tier 2: System design, data model, security/RBAC
+│   ├── adr/                               # Tier 3: Architecture Decision Records
+│   └── runbooks/                          # Tier 4: Deployment & incident runbooks
+├── .github/
+│   ├── PULL_REQUEST_TEMPLATE.md           # Standardized PR checklist
+│   └── ISSUE_TEMPLATE/                    # Bug report & feature request templates
+├── .env.example                           # Environment variable template
+├── package.json                           # Server runtime dependencies & npm scripts
+├── CONTRIBUTING.md                        # Contribution guidelines
+├── SECURITY.md                            # Security policy & disclosure SLAs
+└── LICENSE                                # MIT License
 ```
 
 ---
 
-### 2. Next.js Admin Chatbox (`/admin/chatbox/page.jsx`)
+## 🔌 Socket.IO Event Quick Reference
 
-```javascript
-"use client";
-import React, { useState, useEffect, useRef } from "react";
-import { io } from "socket.io-client";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
+| Event | Direction | Authorized Role | Payload | Behavior |
+|---|---|---|---|---|
+| `user-list` | Server → Admin | `admin` | `string[]` | Sent to admin on connect with all online user IDs |
+| `user-connected` | Server → Admin | `admin` | `string` (`userId`) | Notifies all admins when a user connects |
+| `user-disconnected` | Server → Admin | `admin` | `string` (`userId`) | Notifies all admins when a user disconnects |
+| `send-message` | Client → Server | `user` \| `admin` | `{ text: string }` | User: forwards to all admins. Admin: broadcasts to all sockets |
+| `send-private-message` | Admin → Server | `admin` | `{ targetUserId, text }` | Routes privately to target user and echoes to sender admin |
+| `receive-message` | Server → Client | `user` \| `admin` | `MessagePayload` | Delivers public, broadcast, or private message with ISO timestamp |
 
-const AdminChatBox = () => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [users, setUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState("all");
-  const [isConnected, setIsConnected] = useState(false);
-  const messagesEndRef = useRef(null);
-
-  const socket = io("http://localhost:4000", {
-    auth: {
-      userId: `admin-${crypto.randomUUID().slice(0, 8)}`,
-      role: "admin",
-    },
-    autoConnect: true,
-  });
-
-  useEffect(() => {
-    socket.on("connect", () => {
-      setIsConnected(true);
-      console.log("Connected to server");
-    });
-
-    socket.on("disconnect", () => {
-      setIsConnected(false);
-    });
-
-    socket.on("receive-message", (message) => {
-      setMessages((prev) => [...prev, message]);
-    });
-
-    socket.on("user-connected", (userId) => {
-      setUsers((prev) => [...prev, userId]);
-    });
-
-    socket.on("user-disconnected", (userId) => {
-      setUsers((prev) => prev.filter((id) => id !== userId));
-    });
-
-    socket.on("user-list", (userList) => {
-      setUsers(userList);
-    });
-
-    return () => {
-      socket.off("connect");
-      socket.off("disconnect");
-      socket.off("receive-message");
-      socket.off("user-connected");
-      socket.off("user-disconnected");
-      socket.off("user-list");
-      socket.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const sendMessage = () => {
-    if (input.trim()) {
-      if (selectedUser === "all") {
-        socket.emit("send-message", { text: input });
-      } else {
-        socket.emit("send-private-message", {
-          targetUserId: selectedUser,
-          text: input,
-        });
-      }
-      setInput("");
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle>Admin Chat Dashboard</CardTitle>
-        <div className="flex items-center gap-2">
-          <div
-            className={`h-3 w-3 rounded-full ${
-              isConnected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-sm">
-            {isConnected ? "Connected" : "Disconnected"} | Users online:{" "}
-            {users.length}
-          </span>
-        </div>
-      </CardHeader>
-
-      <CardContent>
-        <div className="mb-4">
-          <Select value={selectedUser} onValueChange={setSelectedUser}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select recipient" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Users</SelectItem>
-              {users.map((userId) => (
-                <SelectItem key={userId} value={userId}>
-                  User {userId}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="h-96 overflow-y-auto border rounded-lg p-4 mb-4 bg-gray-50">
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              No messages yet. Start a conversation!
-            </div>
-          ) : (
-            messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`mb-3 p-3 rounded-lg max-w-xs md:max-w-md ${
-                  msg.userId === "admin"
-                    ? "ml-auto bg-blue-100 border-blue-200"
-                    : msg.private
-                    ? "bg-purple-100 border-purple-200"
-                    : "bg-gray-100 border-gray-200"
-                }`}
-              >
-                <div className="flex justify-between items-baseline mb-1">
-                  <span className="text-xs font-semibold">
-                    {msg.userId === "admin" ? "You" : `User ${msg.userId}`}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-sm">{msg.text}</p>
-                {msg.private && (
-                  <div className="text-xs text-purple-600 mt-1">
-                    Private message
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            onKeyDown={handleKeyPress}
-          />
-          <Button onClick={sendMessage} disabled={!input.trim()}>
-            Send
-          </Button>
-        </div>
-      </CardContent>
-
-      <CardFooter className="text-xs text-gray-500">
-        <p>Admin ID: {socket.auth?.userId}</p>
-      </CardFooter>
-    </Card>
-  );
-};
-
-export default AdminChatBox;
-```
+For full payload schemas and sequence diagrams, see [docs/architecture/system-design.md](./docs/architecture/system-design.md).
 
 ---
 
-### 3. Vite Client Chatbox (`/chatbox`)
+## 🧩 Integrating the Reference UI Components
 
-```javascript
-import React, { useState, useEffect, useRef } from "react";
-import { io } from "socket.io-client";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
-import { useUser } from "@/contexts/UserContext";
+`admin/index.js` and `client/index.js` are standalone React reference components designed to be dropped into your frontend apps.
 
-const UserChatBox = () => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
-  const messagesEndRef = useRef(null);
-  const { user } = useUser();
+### Prerequisites in Frontend Apps
+1. Install `socket.io-client` (`npm install socket.io-client`).
+2. Install [shadcn/ui](https://ui.shadcn.com/) components: `Card`, `Input`, `Button`, and `Select` (admin only).
+3. For `client/index.js`, provide a `UserContext` exporting `useUser()` returning `{ user: { id: string } }`.
 
-  const socket = io("http://localhost:4000", {
-    auth: {
-      userId: user?.id || `temp-${crypto.randomUUID().slice(0, 8)}`,
-      role: "user",
-    },
-    autoConnect: !!user?.id,
-  });
+### Component Integration Paths
+- **Next.js Admin Dashboard** (port `3000`): Copy `admin/index.js` into your App Router route (e.g., `app/admin/chatbox/page.jsx`).
+- **Vite User Client** (port `8080`): Copy `client/index.js` into your chat route/component (e.g., `src/components/UserChatBox.jsx`).
 
-  useEffect(() => {
-    if (!user?.id) return;
-
-    socket.on("connect", () => {
-      setIsConnected(true);
-      console.log("Connected to server as user:", user.id);
-    });
-
-    socket.on("disconnect", () => {
-      setIsConnected(false);
-    });
-
-    socket.on("receive-message", (message) => {
-      setMessages((prev) => [...prev, message]);
-    });
-
-    return () => {
-      socket.off("connect");
-      socket.off("disconnect");
-      socket.off("receive-message");
-      socket.disconnect();
-    };
-  }, [user?.id]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const sendMessage = () => {
-    if (input.trim()) {
-      socket.emit("send-message", { text: input });
-      setInput("");
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle>Customer Support</CardTitle>
-        <div className="flex items-center gap-2">
-          <div
-            className={`h-3 w-3 rounded-full ${
-              isConnected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-sm">
-            {isConnected ? "Connected to support" : "Disconnected"}
-          </span>
-        </div>
-      </CardHeader>
-
-      <CardContent>
-        <div className="h-96 overflow-y-auto border rounded-lg p-4 mb-4 bg-gray-50">
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              {isConnected
-                ? "Send a message to start chatting with support."
-                : "Connecting to support..."}
-            </div>
-          ) : (
-            messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`mb-3 p-3 rounded-lg max-w-xs md:max-w-md ${
-                  msg.userId === user?.id
-                    ? "ml-auto bg-blue-100 border-blue-200"
-                    : msg.private
-                    ? "bg-purple-100 border-purple-200"
-                    : "bg-gray-100 border-gray-200"
-                }`}
-              >
-                <div className="flex justify-between items-baseline mb-1">
-                  <span className="text-xs font-semibold">
-                    {msg.userId === user?.id ? "You" : "Support Agent"}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-sm">{msg.text}</p>
-                {msg.private && (
-                  <div className="text-xs text-purple-600 mt-1">
-                    Private message
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            onKeyDown={handleKeyPress}
-            disabled={!isConnected}
-          />
-          <Button
-            onClick={sendMessage}
-            disabled={!input.trim() || !isConnected}
-          >
-            Send
-          </Button>
-        </div>
-      </CardContent>
-
-      <CardFooter className="text-xs text-gray-500">
-        <p>Your ID: {user?.id || "Not authenticated"}</p>
-      </CardFooter>
-    </Card>
-  );
-};
-
-export default UserChatBox;
-```
+> [!IMPORTANT]
+> Before deploying to production, replace the boilerplate handshake identity check with signed token verification (e.g., JWT) and memoize the Socket.IO client instance inside `useRef`/`useEffect`. See [Security & RBAC](./docs/architecture/security-and-rbac.md) for the full hardening checklist.
 
 ---
 
-## Key Improvements in These Versions:
+## ⚙️ Environment Configuration
 
-1. **Server Enhancements**:
+Copy `.env.example` to `.env` if overriding defaults:
 
-   - Added proper authentication middleware
-   - Improved message structure with timestamps
-   - Better user tracking and notifications
-   - Health check endpoint
+| Variable | Description | Required | Default |
+|---|---|---|---|
+| `PORT` | TCP port for the Express HTTP and Socket.IO server | No | `4000` |
+| `NODE_ENV` | Runtime environment (`development`, `staging`, `production`) | No | `development` |
 
-2. **Admin Chatbox**:
+> [!WARNING]
+> Never commit `.env` files, private keys (`*.pem`, `*.key`), or credentials to version control.
 
-   - Better UI with status indicators
-   - Auto-scrolling message view
-   - Improved message display with timestamps
-   - Connection status monitoring
+---
 
-3. **User Chatbox**:
+## 🛠️ Available Scripts
 
-   - Proper connection handling
-   - Better UI feedback
-   - Message timestamps
-   - Connection status indicators
+| Command | Description |
+|---|---|
+| `npm run start-server` | Start the Express/Socket.IO server with `node server.js` |
+| `npm run dev-server` | Start the server with auto-restart via `nodemon server.js` |
+| `node .agents/skills/senior-repo-standards/scripts/audit-hygiene.js` | Run the repository hygiene & documentation compliance audit |
 
-4. **Both Clients**:
-   - Proper TypeScript types (if using TS)
-   - Better error handling
-   - Auto-reconnection
-   - Clean socket event cleanup
+---
 
-To use these components, make sure you have the required UI components installed (like shadcn/ui for the Card, Input, Button components) and the proper context providers set up.
+## 🤝 Contributing
 
-## Lessons Learned and Best Practices
+We welcome contributions. Please review [CONTRIBUTING.md](./CONTRIBUTING.md) and [docs/git-standards.md](./docs/git-standards.md) before opening a pull request.
 
-1. **Always Include Sender Context**: The initial issue with undefined user IDs was resolved by ensuring the userId is always included with messages.
+## 🛡️ Security
 
-2. **Connection Management**:
+To report a security vulnerability, follow the responsible disclosure process in [SECURITY.md](./SECURITY.md).
 
-   - Use proper authentication on connection
-   - Maintain separate data structures for different user types
-   - Clean up event listeners on disconnection
+## 📄 License
 
-3. **Error Handling**:
-
-   - Verify user data exists before processing messages
-   - Implement proper role checking for sensitive operations
-
-4. **Scalability Considerations**:
-   - The current in-memory storage works for small-scale applications
-   - For production, consider Redis for distributed connection tracking
-
-## Future Improvements
-
-1. **Message Persistence**: Store messages in a database for history
-2. **Authentication**: Implement proper JWT or session-based auth
-3. **Scalability**: Add support for multiple admin clients
-4. **Features**: Typing indicators, message read receipts, file sharing
-5. **Error Recovery**: Handle reconnection logic more gracefully
-
-## Deployment Notes
-
-1. **Environment Variables**: Move all URLs and ports to configuration
-2. **Production CORS**: Update CORS settings for production domains
-3. **HTTPS**: Ensure all connections use HTTPS in production
-4. **Load Testing**: Test with multiple concurrent users
-
-This implementation serves as an excellent foundation for realtime communication applications and can be extended for various use cases including customer support systems, internal team communication tools, or live assistance features.
+This project is licensed under the [MIT License](./LICENSE).
